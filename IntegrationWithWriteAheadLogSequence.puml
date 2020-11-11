@@ -1,0 +1,107 @@
+@startuml
+title Integration With Write-Ahead Log
+
+participant Application
+participant WALManager
+participant LogFile
+participant MessageBroker
+
+group Send message
+activate Application
+Application -> WALManager: sendMessage(topic, key, value)
+activate WALManager
+WALManager -> LogFile: acquire lock
+activate LogFile
+return lock
+
+alt LogFile size exceeds threshold
+WALManager -> WALManager: create new LogFile
+end
+WALManager -> WALManager: create log metadata
+
+WALManager -> LogFile: append log metadata
+activate LogFile
+return
+
+WALManager -> LogFile: release lock
+activate LogFile
+return
+
+WALManager -> MessageBroker: sendMessage(topic, key, value)
+activate MessageBroker
+return ack
+
+WALManager -> LogFile: acquire lock
+activate LogFile
+return lock
+
+WALManager -> LogFile: set Low Water Mark (LWM) to the end of file
+activate LogFile
+return
+
+WALManager -> LogFile: release lock
+activate LogFile
+return
+
+return
+
+end
+
+group Replay send messages when Application goes down
+
+activate Application
+Application -> WALManager: sendMessage(topic, key, value)
+activate WALManager
+WALManager -> LogFile: acquire lock
+activate LogFile
+return lock
+
+alt LogFile size exceeds threshold
+WALManager -> WALManager: create new LogFile
+end
+WALManager -> WALManager: create log metadata
+
+WALManager -> LogFile: append log metadata
+activate LogFile
+return
+
+WALManager -> LogFile: release lock
+activate LogFile
+return
+
+== Application is down ==
+
+== Application goes up ==
+
+WALManager -> LogFile: acquire lock
+activate LogFile
+return lock
+
+WALManager -> LogFile: read LWM
+activate LogFile
+return LWM
+
+alt LWM is not in the end of file
+loop for each remained transaction
+
+WALManager -> MessageBroker: sendMessage
+activate MessageBroker
+return ack
+
+WALManager -> LogFile: shift LWM to the next transaction
+activate LogFile
+return OK
+
+end
+end
+
+WALManager -> LogFile: release lock
+activate LogFile
+return
+
+return
+
+deactivate Application
+end
+
+@enduml
